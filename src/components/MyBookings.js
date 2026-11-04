@@ -1,95 +1,114 @@
-import React, { useState, useEffect } from 'react';
-import { getApiKeyOptions } from '../apiConfig';
+import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { fetchAllPages, request } from "../api";
 
-const MyBookings = () => {
-  const token = localStorage.getItem('token');
-  const username = localStorage.getItem('username');
+export default function MyBookings() {
+  const token = localStorage.getItem("token");
+  const username = localStorage.getItem("username");
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(null);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
+    let active = true;
     if (!token || !username) {
-      setError('You must be logged in to view your bookings.');
+      setError("You must be logged in to view your bookings.");
       setLoading(false);
       return;
     }
-    // Fetch bookings for the current user
-    fetch(`https://v2.api.noroff.dev/holidaze/profiles/${username}/bookings`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...getApiKeyOptions(token).headers,
-        'Authorization': `Bearer ${token}`,
-      },
-    })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Failed to fetch bookings');
-        }
-        return response.json();
+    setLoading(true);
+    setError("");
+    fetchAllPages(
+      `/holidaze/profiles/${encodeURIComponent(username)}/bookings?_venue=true&sort=dateFrom&sortOrder=asc`,
+      { token },
+    )
+      .then((items) => {
+        if (active) setBookings(items);
       })
-      .then(data => {
-        setBookings(data.data || []);
-        setLoading(false);
+      .catch((err) => {
+        if (active) setError(err.message);
       })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
+      .finally(() => {
+        if (active) setLoading(false);
       });
-  }, [token, username]);
-
-  const handleCancel = async (bookingId) => {
+    return () => {
+      active = false;
+    };
+  }, [token, username, retry]);
+  const cancel = async (id) => {
+    if (
+      pending ||
+      !window.confirm("Cancel this booking? This cannot be undone.")
+    )
+      return;
+    setPending(id);
+    setError("");
     try {
-      const response = await fetch(`https://v2.api.noroff.dev/holidaze/bookings/${bookingId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiKeyOptions(token).headers,
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error('Failed to cancel booking');
-      }
-      // Remove the cancelled booking from state
-      setBookings(prevBookings => prevBookings.filter(booking => booking.id !== bookingId));
+      await request(`/holidaze/bookings/${id}`, { method: "DELETE", token });
+      setBookings((previous) => previous.filter((item) => item.id !== id));
     } catch (err) {
-      console.error(err);
       setError(err.message);
+    } finally {
+      setPending(null);
     }
   };
-
-  if (loading) return <p>Loading your bookings...</p>;
-  if (error) return <p className="text-danger">Error: {error}</p>;
-  if (bookings.length === 0) return <p>You have no bookings.</p>;
-
   return (
-    <div className="my-5">
-      <h2>My Bookings</h2>
-      <div className="list-group">
-        {bookings.map(booking => (
-          <div key={booking.id} className="list-group-item">
-            <h5>Booking ID: {booking.id}</h5>
-            <p>
-              <strong>Check-in:</strong> {new Date(booking.dateFrom).toLocaleDateString()}
-            </p>
-            <p>
-              <strong>Check-out:</strong> {new Date(booking.dateTo).toLocaleDateString()}
-            </p>
-            <p>
-              <strong>Guests:</strong> {booking.guests}
-            </p>
-            <button 
-              className="btn btn-danger mt-3"
-              onClick={() => handleCancel(booking.id)}
-            >
-              Cancel Booking
-            </button>
+    <section className="my-5" aria-labelledby="bookings-heading">
+      <h2 id="bookings-heading">My Bookings</h2>
+      {loading && <p role="status">Loading your bookings...</p>}
+      {error && (
+        <div className="alert alert-danger" role="alert">
+          {error}{" "}
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-danger"
+            onClick={() => setRetry((n) => n + 1)}
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      {!loading && !bookings.length && !error && (
+        <p>
+          You have no bookings. <Link to="/">Find your next stay</Link>
+        </p>
+      )}
+      <div className="row g-3">
+        {bookings.map((item) => (
+          <div key={item.id} className="col-md-6">
+            <article className="card h-100">
+              <div className="card-body">
+                <h3 className="h5">
+                  {item.venue ? (
+                    <Link to={`/venues/${item.venue.id}`}>
+                      {item.venue.name}
+                    </Link>
+                  ) : (
+                    "Your reserved stay"
+                  )}
+                </h3>
+                <p className="small text-muted">Booking ID: {item.id}</p>
+                <p>
+                  <strong>Check-in:</strong> {item.dateFrom.slice(0, 10)}
+                  <br />
+                  <strong>Check-out:</strong> {item.dateTo.slice(0, 10)}
+                  <br />
+                  <strong>Guests:</strong> {item.guests}
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-outline-danger btn-sm"
+                  disabled={Boolean(pending)}
+                  onClick={() => cancel(item.id)}
+                >
+                  {pending === item.id ? "Cancelling…" : "Cancel Booking"}
+                </button>
+              </div>
+            </article>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
-};
-
-export default MyBookings;
+}

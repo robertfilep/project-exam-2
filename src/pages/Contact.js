@@ -1,38 +1,43 @@
 // src/pages/Contact.js
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
 const Contact = () => {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [message, setMessage] = useState('');
-  const [success, setSuccess] = useState('');
-  const [error, setError] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
 
   const handleSubmit = (e) => {
     e.preventDefault();
     // Simple validation: make sure all fields are filled
     if (!name || !email || !message) {
-      setError('Please fill in all fields.');
-      setSuccess('');
+      setError("Please fill in all fields.");
+      setSuccess("");
       return;
     }
     // Simulate a successful form submission (replace this with an API call if needed)
-    setSuccess('Thank you for your message! We will get back to you soon.');
-    setError('');
+    setSuccess("This is a portfolio demo. Your message has not been sent.");
+    setError("");
     // Clear form fields after submission
-    setName('');
-    setEmail('');
-    setMessage('');
+    setName("");
+    setEmail("");
+    setMessage("");
   };
 
   return (
-    <div className="container my-5">
+    <div className="container my-5 narrow-form">
       <h1 className="display-4 text-center mb-4">Contact Us</h1>
       {success && <div className="alert alert-success">{success}</div>}
       {error && <div className="alert alert-danger">{error}</div>}
+      <p className="text-muted">
+        Demo contact form — messages are not delivered.
+      </p>
       <form onSubmit={handleSubmit}>
         <div className="mb-3">
-          <label htmlFor="contactName" className="form-label">Name</label>
+          <label htmlFor="contactName" className="form-label">
+            Name
+          </label>
           <input
             type="text"
             className="form-control"
@@ -44,7 +49,9 @@ const Contact = () => {
           />
         </div>
         <div className="mb-3">
-          <label htmlFor="contactEmail" className="form-label">Email</label>
+          <label htmlFor="contactEmail" className="form-label">
+            Email
+          </label>
           <input
             type="email"
             className="form-control"
@@ -56,7 +63,9 @@ const Contact = () => {
           />
         </div>
         <div className="mb-3">
-          <label htmlFor="contactMessage" className="form-label">Message</label>
+          <label htmlFor="contactMessage" className="form-label">
+            Message
+          </label>
           <textarea
             className="form-control"
             id="contactMessage"
@@ -67,7 +76,9 @@ const Contact = () => {
             required
           ></textarea>
         </div>
-        <button type="submit" className="btn btn-primary">Send Message</button>
+        <button type="submit" className="btn btn-primary">
+          Preview Message
+        </button>
       </form>
     </div>
   );

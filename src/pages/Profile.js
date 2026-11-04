@@ -1,263 +1,251 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { getApiKeyOptions } from '../apiConfig';
-import MyVenues from '../components/MyVenues';
-import MyBookings from '../components/MyBookings';
+import React, { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { request } from "../api";
+import { notifySessionChange } from "../session";
+import MyVenues from "../components/MyVenues";
+import MyBookings from "../components/MyBookings";
+import VenueImage from "../components/VenueImage";
 
-const Profile = () => {
-  const token = localStorage.getItem('token');
-  const username = localStorage.getItem('username');
+const normalizeProfile = (profile) => ({
+  ...profile,
+  bio: profile.bio || "",
+  avatar: { url: "", alt: "", ...profile.avatar },
+  banner: { url: "", alt: "", ...profile.banner },
+});
+
+export default function Profile() {
+  const token = localStorage.getItem("token");
+  const username = localStorage.getItem("username");
   const navigate = useNavigate();
-
-  const [userData, setUserData] = useState({
-    name: '',
-    email: '',
-    bio: '',
-    avatar: { url: '', alt: '' },
-    banner: { url: '', alt: '' },
-    venueManager: false,
-    _count: { venues: 0, bookings: 0 },
-  });
+  const [profile, setProfile] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [editMode, setEditMode] = useState(false);
-
+  const [saving, setSaving] = useState(false);
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
+    let active = true;
     if (!token || !username) {
-      navigate('/login');
+      navigate("/login", { replace: true, state: { from: "/profile" } });
       return;
     }
-    fetch(`https://v2.api.noroff.dev/holidaze/profiles/${username}`, getApiKeyOptions(token))
-      .then((res) => {
-        console.log('Profile fetch response status:', res.status);
-        if (!res.ok) {
-          throw new Error('Failed to fetch profile data');
-        }
-        return res.json();
-      })
-      .then((data) => {
-        console.log('Fetched profile data:', data);
-        setUserData(data.data || data);
-        setLoading(false);
+    setLoading(true);
+    setError("");
+    request(`/holidaze/profiles/${encodeURIComponent(username)}`, { token })
+      .then((body) => {
+        if (active) setProfile(normalizeProfile(body.data));
       })
       .catch((err) => {
-        console.error('Error fetching profile:', err);
-        setError(err.message);
-        setLoading(false);
+        if (active) setError(err.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-  }, [token, username, navigate]);
-
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    if (name.startsWith('avatar.')) {
-      const field = name.split('.')[1];
-      setUserData((prev) => ({
-        ...prev,
-        avatar: { ...prev.avatar, [field]: value },
-      }));
-    } else if (name.startsWith('banner.')) {
-      const field = name.split('.')[1];
-      setUserData((prev) => ({
-        ...prev,
-        banner: { ...prev.banner, [field]: value },
-      }));
-    } else if (type === 'checkbox') {
-      setUserData((prev) => ({ ...prev, [name]: checked }));
-    } else {
-      setUserData((prev) => ({ ...prev, [name]: value }));
+    return () => {
+      active = false;
+    };
+  }, [token, username, navigate, retry]);
+  const change = (event) => {
+    const { name, value, type, checked } = event.target;
+    const [field, property] = name.split(".");
+    setDraft((previous) =>
+      property
+        ? { ...previous, [field]: { ...previous[field], [property]: value } }
+        : { ...previous, [field]: type === "checkbox" ? checked : value },
+    );
+  };
+  const save = async (event) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const body = await request(
+        `/holidaze/profiles/${encodeURIComponent(username)}`,
+        {
+          method: "PUT",
+          token,
+          body: JSON.stringify({
+            bio: draft.bio,
+            avatar: draft.avatar,
+            banner: draft.banner,
+            venueManager: draft.venueManager,
+          }),
+        },
+      );
+      const updated = normalizeProfile(body.data);
+      setProfile(updated);
+      setDraft(null);
+      setSuccess("Profile updated successfully.");
+      if (updated.avatar.url)
+        localStorage.setItem("avatarUrl", updated.avatar.url);
+      else localStorage.removeItem("avatarUrl");
+      notifySessionChange();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
     }
   };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    fetch(`https://v2.api.noroff.dev/holidaze/profiles/${username}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getApiKeyOptions(token).headers,
-      },
-      body: JSON.stringify({
-        bio: userData.bio,
-        avatar: userData.avatar.url ? userData.avatar : undefined,
-        banner: userData.banner.url ? userData.banner : undefined,
-        venueManager: userData.venueManager,
-      }),
-    })
-      .then((res) => {
-        console.log('Profile update response status:', res.status);
-        if (!res.ok) {
-          throw new Error('Failed to update profile');
-        }
-        return res.json();
-      })
-      .then((data) => {
-        console.log('Updated profile data:', data);
-        setSuccess('Profile updated successfully.');
-        setUserData(data.data || data);
-        setEditMode(false);
-      })
-      .catch((err) => {
-        console.error('Error updating profile:', err);
-        setError(err.message);
-      });
-  };
-
-  if (loading) return <p className="text-center my-4">Loading profile...</p>;
-  if (error) return <p className="text-center text-danger my-4">Error: {error}</p>;
-
+  if (loading)
+    return (
+      <p role="status" className="container py-5">
+        Loading profile...
+      </p>
+    );
   return (
-    <div className="container my-5">
-      {/* Banner at the top */}
-      {userData.banner.url && (
-        <div className="mb-4">
-          <img
-            src={userData.banner.url}
-            alt={userData.banner.alt || 'Banner'}
-            className="img-fluid w-100 rounded"
-            style={{ maxHeight: '300px', objectFit: 'cover' }}
-          />
+    <section className="container py-5">
+      {error && (
+        <div role="alert" className="alert alert-danger">
+          {error}
+          {!profile && (
+            <button
+              className="btn btn-sm btn-outline-danger ms-2"
+              onClick={() => setRetry((n) => n + 1)}
+            >
+              Try again
+            </button>
+          )}
         </div>
       )}
-      
-      {/* Profile Card */}
-      <div className="card shadow mb-4">
-        <div className="card-header d-flex justify-content-between align-items-center">
-          <h2 className="mb-0">My Profile</h2>
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => setEditMode(true)}>
-            Edit Profile
-          </button>
+      {success && (
+        <div role="status" className="alert alert-success">
+          {success}
         </div>
-        <div className="card-body">
-          <div className="row align-items-center">
-            <div className="col-md-4 text-center">
-              {userData.avatar.url ? (
-                <img
-                  src={userData.avatar.url}
-                  alt={userData.avatar.alt || 'Avatar'}
-                  className="img-fluid rounded-circle mb-3"
-                  style={{ maxWidth: '200px' }}
-                />
-              ) : (
-                <div className="alert alert-secondary">No Avatar Available</div>
-              )}
+      )}
+      {profile && (
+        <>
+          {profile.banner.url && (
+            <VenueImage
+              src={profile.banner.url}
+              alt={profile.banner.alt || "Profile banner"}
+              className="profile-banner"
+            />
+          )}
+          <div className="card p-4">
+            <div className="d-flex justify-content-between align-items-center gap-3">
+              <h1 className="h3">My Profile</h1>
+              <button
+                type="button"
+                className="btn btn-outline-secondary"
+                onClick={() => {
+                  setDraft(normalizeProfile(profile));
+                  setError("");
+                  setSuccess("");
+                }}
+              >
+                Edit Profile
+              </button>
             </div>
-            <div className="col-md-8">
-              <h3>{userData.name}</h3>
-              <p><strong>Email:</strong> {userData.email}</p>
-              <p><strong>Bio:</strong> {userData.bio || 'No bio provided.'}</p>
-              <p><strong>Venue Manager:</strong> {userData.venueManager ? 'Yes' : 'No'}</p>
+            <div className="d-flex flex-wrap align-items-center gap-4 mt-3">
+              {profile.avatar.url && (
+                <VenueImage
+                  src={profile.avatar.url}
+                  alt={profile.avatar.alt || profile.name}
+                  className="profile-avatar"
+                />
+              )}
+              <div>
+                <h2 className="h4">{profile.name}</h2>
+                <p>{profile.email}</p>
+                <p>
+                  {profile.bio || "Tell your hosts a little about yourself."}
+                </p>
+                <p className="small text-muted">
+                  {profile.venueManager ? "Venue manager" : "Guest"}
+                </p>
+              </div>
             </div>
           </div>
-
-          {success && <div className="alert alert-success mt-3">{success}</div>}
-        </div>
-      </div>
-
-      {/* Edit Profile Form (inside the same card if edit mode is active) */}
-      {editMode && (
-        <div className="card shadow mb-4">
-          <div className="card-body">
-            <h4 className="mb-3">Edit Profile</h4>
-            <form onSubmit={handleSubmit}>
-              <div className="mb-3">
-                <label htmlFor="bio" className="form-label">Bio</label>
-                <textarea
-                  name="bio"
-                  id="bio"
-                  className="form-control"
-                  rows="3"
-                  value={userData.bio}
-                  onChange={handleChange}
-                  maxLength="160"
-                ></textarea>
-              </div>
-              <div className="mb-3">
-                <label htmlFor="avatarUrl" className="form-label">Avatar URL</label>
-                <input
-                  type="text"
-                  name="avatar.url"
-                  id="avatarUrl"
-                  className="form-control"
-                  value={userData.avatar.url}
-                  onChange={handleChange}
-                />
-              </div>
-              <div className="mb-3">
-                <label htmlFor="avatarAlt" className="form-label">Avatar Alt Text</label>
-                <input
-                  type="text"
-                  name="avatar.alt"
-                  id="avatarAlt"
-                  className="form-control"
-                  value={userData.avatar.alt}
-                  onChange={handleChange}
-                  maxLength="120"
-                />
-              </div>
-              <div className="mb-3">
-                <label htmlFor="bannerUrl" className="form-label">Banner URL</label>
-                <input
-                  type="text"
-                  name="banner.url"
-                  id="bannerUrl"
-                  className="form-control"
-                  value={userData.banner.url}
-                  onChange={handleChange}
-                />
-              </div>
-              <div className="mb-3">
-                <label htmlFor="bannerAlt" className="form-label">Banner Alt Text</label>
-                <input
-                  type="text"
-                  name="banner.alt"
-                  id="bannerAlt"
-                  className="form-control"
-                  value={userData.banner.alt}
-                  onChange={handleChange}
-                  maxLength="120"
-                />
-              </div>
-              <div className="form-check mb-3">
-                <input
-                  type="checkbox"
-                  name="venueManager"
-                  id="venueManager"
-                  className="form-check-input"
-                  checked={userData.venueManager}
-                  onChange={handleChange}
-                />
-                <label className="form-check-label" htmlFor="venueManager">
-                  Venue Manager
+          {draft && (
+            <form onSubmit={save} className="card p-4 mt-4">
+              <h2 className="h4">Edit Profile</h2>
+              <fieldset disabled={saving}>
+                <label htmlFor="bio" className="form-label">
+                  Bio
                 </label>
-              </div>
-              <div className="d-flex justify-content-between">
-                <button type="submit" className="btn btn-primary">Update Profile</button>
-                <button type="button" className="btn btn-outline-secondary" onClick={() => setEditMode(false)}>
+                <textarea
+                  id="bio"
+                  name="bio"
+                  className="form-control mb-3"
+                  value={draft.bio}
+                  onChange={change}
+                  maxLength="160"
+                />
+                {["avatar", "banner"].map((field) => (
+                  <div key={field} className="row">
+                    <div className="col-md-8 mb-3">
+                      <label htmlFor={`${field}Url`} className="form-label">
+                        {field === "avatar" ? "Avatar URL" : "Banner URL"}
+                      </label>
+                      <input
+                        id={`${field}Url`}
+                        name={`${field}.url`}
+                        type="url"
+                        className="form-control"
+                        value={draft[field].url}
+                        onChange={change}
+                      />
+                    </div>
+                    <div className="col-md-4 mb-3">
+                      <label htmlFor={`${field}Alt`} className="form-label">
+                        {field === "avatar"
+                          ? "Avatar Alt Text"
+                          : "Banner Alt Text"}
+                      </label>
+                      <input
+                        id={`${field}Alt`}
+                        name={`${field}.alt`}
+                        className="form-control"
+                        value={draft[field].alt}
+                        onChange={change}
+                        maxLength="120"
+                      />
+                    </div>
+                  </div>
+                ))}
+                <div className="form-check mb-4">
+                  <input
+                    id="venueManager"
+                    name="venueManager"
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={Boolean(draft.venueManager)}
+                    onChange={change}
+                  />
+                  <label htmlFor="venueManager" className="form-check-label">
+                    Venue Manager
+                  </label>
+                </div>
+                <button className="btn btn-primary me-2" type="submit">
+                  {saving ? "Saving…" : "Update Profile"}
+                </button>
+                <button
+                  className="btn btn-outline-secondary"
+                  type="button"
+                  onClick={() => {
+                    setDraft(null);
+                    setError("");
+                  }}
+                >
                   Cancel
                 </button>
-              </div>
+              </fieldset>
             </form>
-          </div>
-        </div>
+          )}
+          {profile.venueManager && (
+            <>
+              <Link to="/add-venue" className="btn btn-primary mt-4">
+                Add Venue
+              </Link>
+              <MyVenues username={username} token={token} />
+            </>
+          )}
+          <MyBookings />
+        </>
       )}
-
-      {/* Add Venue Button */}
-      <div className="text-center my-4">
-        <Link to="/add-venue" className="btn btn-success">
-          Add Venue
-        </Link>
-      </div>
-
-      {/* My Venues Section */}
-      <MyVenues username={username} token={token} />
-
-      {/* My Bookings Section */}
-      <MyBookings />
-    </div>
+    </section>
   );
-};
-
-export default Profile;
+}
