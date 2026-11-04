@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { getApiKeyOptions } from '../apiConfig';
+import React, { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { notifySessionChange } from "../session";
+import { request } from "../api";
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
-    email: '',
-    password: '',
+    email: "",
+    password: "",
   });
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -17,73 +20,86 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError("");
+    if (submitting) return;
+    setSubmitting(true);
     try {
-      const response = await fetch('https://v2.api.noroff.dev/auth/login', {
-        method: 'POST',
-        headers: {
-          ...getApiKeyOptions().headers,
-        },
-        body: JSON.stringify(form),
+      const data = await request("/auth/login?_holidaze=true", {
+        method: "POST",
+        body: JSON.stringify({ ...form, email: form.email.trim() }),
       });
-  
-      if (!response.ok) {
-        throw new Error(`Login failed: ${response.statusText}`);
-      }
-  
-      const data = await response.json();
-      console.log('Login response:', data);
-      
       // Store token and username
-      localStorage.setItem('token', data.data.accessToken);
-      localStorage.setItem('username', data.data.name);
-      
+      localStorage.setItem("token", data.data.accessToken);
+      localStorage.setItem("username", data.data.name);
+
       // If an avatar exists in the response, store its URL
       if (data.data.avatar && data.data.avatar.url) {
-        localStorage.setItem('avatarUrl', data.data.avatar.url);
+        localStorage.setItem("avatarUrl", data.data.avatar.url);
       } else {
-        localStorage.removeItem('avatarUrl');
+        localStorage.removeItem("avatarUrl");
       }
-      
+
       // Navigate to the home page
-      navigate('/');
+      notifySessionChange();
+      const destination = location.state?.from;
+      navigate(
+        typeof destination === "string" &&
+          destination.startsWith("/") &&
+          !destination.startsWith("//")
+          ? destination
+          : "/",
+        { replace: true },
+      );
     } catch (err) {
-      console.error(err);
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="container my-5">
+    <div className="container my-5 narrow-form">
       <h1 className="display-4 text-center mb-4">Login</h1>
-      {error && <div className="alert alert-danger">{error}</div>}
+      {error && (
+        <div role="alert" className="alert alert-danger">
+          {error}
+        </div>
+      )}
       <form onSubmit={handleSubmit}>
         <div className="mb-3">
-          <label htmlFor="email" className="form-label">Email</label>
-          <input 
-            type="email" 
-            name="email" 
-            id="email" 
-            className="form-control" 
-            value={form.email} 
-            onChange={handleChange} 
-            required 
+          <label htmlFor="email" className="form-label">
+            Email
+          </label>
+          <input
+            type="email"
+            name="email"
+            id="email"
+            autoComplete="email"
+            className="form-control"
+            value={form.email}
+            onChange={handleChange}
+            required
           />
         </div>
         <div className="mb-3">
-          <label htmlFor="password" className="form-label">Password</label>
-          <input 
-            type="password" 
-            name="password" 
-            id="password" 
-            className="form-control" 
-            value={form.password} 
-            onChange={handleChange} 
-            required 
+          <label htmlFor="password" className="form-label">
+            Password
+          </label>
+          <input
+            type="password"
+            name="password"
+            id="password"
+            autoComplete="current-password"
+            className="form-control"
+            value={form.password}
+            onChange={handleChange}
+            required
             minLength="8"
           />
         </div>
-        <button type="submit" className="btn btn-primary">Login</button>
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
+          {submitting ? "Logging in…" : "Login"}
+        </button>
       </form>
     </div>
   );

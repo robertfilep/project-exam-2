@@ -1,131 +1,235 @@
-// src/pages/BookVenue.js
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { getApiKeyOptions } from '../apiConfig';
+import React, { useEffect, useState } from "react";
+import { Link, Navigate, useParams } from "react-router-dom";
+import { request } from "../api";
+import { localDateValue, nightsBetween, validateBooking } from "../booking";
+import VenueImage from "../components/VenueImage";
 
-const BookVenue = () => {
+export default function BookVenue() {
   const { id } = useParams();
+  const token = localStorage.getItem("token");
   const [venue, setVenue] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [form, setForm] = useState({
-    dateFrom: '',
-    dateTo: '',
-    guests: 1,
-  });
-  
+  const [loadError, setLoadError] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [booking, setBooking] = useState(null);
+  const [form, setForm] = useState({ dateFrom: "", dateTo: "", guests: 1 });
   useEffect(() => {
-    // Fetch venue details (optional, for display)
-    fetch(`https://v2.api.noroff.dev/holidaze/venues/${id}`, getApiKeyOptions())
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error('Error fetching venue details');
+    if (!token) return;
+    let active = true;
+    setLoading(true);
+    setLoadError("");
+    setVenue(null);
+    setBooking(null);
+    request(`/holidaze/venues/${id}?_bookings=true`)
+      .then((body) => {
+        if (active) {
+          if (!body?.data) throw new Error("This venue could not be found.");
+          setVenue(body.data);
         }
-        return res.json();
-      })
-      .then((data) => {
-        setVenue(data.data);
-        setLoading(false);
       })
       .catch((err) => {
-        setError(err.message);
-        setLoading(false);
+        if (active) setLoadError(err.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-  }, [id]);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    // Example: Booking API call
-    const payload = {
-      venueId: id,
-      dateFrom: form.dateFrom,
-      dateTo: form.dateTo,
-      guests: parseInt(form.guests, 10),
+    return () => {
+      active = false;
     };
+  }, [id, token]);
 
+  if (!token)
+    return (
+      <Navigate to="/login" replace state={{ from: `/book-venue/${id}` }} />
+    );
+  if (loading)
+    return (
+      <p role="status" className="container py-5">
+        Loading venue details...
+      </p>
+    );
+  if (loadError)
+    return (
+      <div className="container py-5">
+        <p role="alert" className="alert alert-danger">
+          {loadError}
+        </p>
+        <Link to={`/venues/${id}`}>Back to venue</Link>
+      </div>
+    );
+  if (!venue) return null;
+  if (booking)
+    return (
+      <section className="container py-5 narrow-form">
+        <div role="status" className="alert alert-success">
+          <h1 className="h3">Your stay is booked</h1>
+          <p>
+            {venue.name} · {form.dateFrom} to {form.dateTo} · {form.guests}{" "}
+            guests
+          </p>
+          <p className="mb-0">
+            You can view or cancel this booking in your profile.
+          </p>
+        </div>
+        <Link className="btn btn-primary" to="/profile">
+          View my bookings
+        </Link>
+      </section>
+    );
+
+  const change = (event) => {
+    setError("");
+    setForm((previous) => ({
+      ...previous,
+      [event.target.name]: event.target.value,
+    }));
+  };
+  const nights = nightsBetween(form.dateFrom, form.dateTo);
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (submitting) return;
+    const validation = validateBooking(form, venue);
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    setError("");
+    setSubmitting(true);
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('https://v2.api.noroff.dev/holidaze/bookings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getApiKeyOptions(token).headers,
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
+      // Refresh availability immediately before booking; the API remains authoritative.
+      const latest = await request(`/holidaze/venues/${id}?_bookings=true`);
+      const availabilityError = validateBooking(form, latest.data);
+      setVenue(latest.data);
+      if (availabilityError) throw new Error(availabilityError);
+      const body = await request("/holidaze/bookings", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          venueId: id,
+          dateFrom: `${form.dateFrom}T00:00:00.000Z`,
+          dateTo: `${form.dateTo}T00:00:00.000Z`,
+          guests: Number(form.guests),
+        }),
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to create booking: ${response.statusText}`);
-      }
-      const data = await response.json();
-      console.log('Booking created:', data);
-      alert('Booking created successfully!');
+      setBooking(body.data);
     } catch (err) {
-      console.error(err);
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
-
-  if (loading) return <p>Loading venue details...</p>;
-  if (error) return <p>Error: {error}</p>;
-
   return (
-    <div className="container my-5">
-      {venue && (
-        <div>
-          <h1 className="display-4">{venue.name}</h1>
-          <p>{venue.description}</p>
+    <section className="container py-5">
+      <Link to={`/venues/${id}`} className="d-inline-block mb-4">
+        ← Back to venue
+      </Link>
+      <div className="row g-5">
+        <div className="col-lg-6">
+          <p className="eyebrow">YOUR NEXT GETAWAY</p>
+          <h1>Book your stay</h1>
+          <form onSubmit={handleSubmit}>
+            {error && (
+              <div role="alert" className="alert alert-danger">
+                {error}
+              </div>
+            )}
+            <fieldset disabled={submitting}>
+              <div className="row">
+                <div className="col-sm-6 mb-3">
+                  <label htmlFor="dateFrom" className="form-label">
+                    Check-in Date
+                  </label>
+                  <input
+                    type="date"
+                    id="dateFrom"
+                    name="dateFrom"
+                    className="form-control"
+                    min={localDateValue()}
+                    value={form.dateFrom}
+                    onChange={change}
+                    required
+                  />
+                </div>
+                <div className="col-sm-6 mb-3">
+                  <label htmlFor="dateTo" className="form-label">
+                    Check-out Date
+                  </label>
+                  <input
+                    type="date"
+                    id="dateTo"
+                    name="dateTo"
+                    className="form-control"
+                    min={form.dateFrom || localDateValue()}
+                    value={form.dateTo}
+                    onChange={change}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="mb-4">
+                <label htmlFor="guests" className="form-label">
+                  Number of Guests
+                </label>
+                <input
+                  type="number"
+                  id="guests"
+                  name="guests"
+                  className="form-control"
+                  min="1"
+                  max={venue.maxGuests}
+                  step="1"
+                  value={form.guests}
+                  onChange={change}
+                  required
+                />
+                <p className="form-text">
+                  This stay welcomes up to {venue.maxGuests} guests.
+                </p>
+              </div>
+              <button type="submit" className="btn btn-primary">
+                {submitting ? "Booking your stay…" : "Confirm booking"}
+              </button>
+            </fieldset>
+          </form>
         </div>
-      )}
-      <h2>Book this Venue</h2>
-      <form onSubmit={handleSubmit}>
-        <div className="mb-3">
-          <label htmlFor="dateFrom" className="form-label">Check-in Date</label>
-          <input 
-            type="date" 
-            name="dateFrom" 
-            id="dateFrom" 
-            className="form-control"
-            value={form.dateFrom}
-            onChange={handleChange}
-            required 
-          />
-        </div>
-        <div className="mb-3">
-          <label htmlFor="dateTo" className="form-label">Check-out Date</label>
-          <input 
-            type="date" 
-            name="dateTo" 
-            id="dateTo" 
-            className="form-control"
-            value={form.dateTo}
-            onChange={handleChange}
-            required 
-          />
-        </div>
-        <div className="mb-3">
-          <label htmlFor="guests" className="form-label">Number of Guests</label>
-          <input 
-            type="number" 
-            name="guests" 
-            id="guests" 
-            className="form-control"
-            value={form.guests}
-            onChange={handleChange}
-            required
-            min="1"
-          />
-        </div>
-        <button type="submit" className="btn btn-primary">Book Now</button>
-      </form>
-    </div>
+        <aside className="col-lg-6">
+          <div className="card booking-summary">
+            <VenueImage
+              src={venue.media?.[0]?.url}
+              alt={venue.name}
+              className="card-img-top"
+            />
+            <div className="card-body">
+              <h2 className="h4">{venue.name}</h2>
+              <p className="text-muted">
+                {[venue.location?.city, venue.location?.country]
+                  .filter(Boolean)
+                  .join(", ")}
+              </p>
+              <p>${venue.price} per night</p>
+              {Number.isFinite(nights) && nights > 0 && (
+                <p className="h5">
+                  {nights} nights · Total ${(nights * venue.price).toFixed(2)}
+                </p>
+              )}
+              {(venue.bookings || []).length > 0 && (
+                <details className="mt-3">
+                  <summary>View booked dates</summary>
+                  <ul className="small mt-2">
+                    {venue.bookings.map((item) => (
+                      <li key={item.id}>
+                        {item.dateFrom.slice(0, 10)} →{" "}
+                        {item.dateTo.slice(0, 10)}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
   );
-};
-
-export default BookVenue;
+}

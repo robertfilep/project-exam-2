@@ -1,46 +1,55 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React from "react";
+import { Link } from "react-router-dom";
+import VenueImage from "./VenueImage";
 
-const VenueCard = ({ venue }) => {
-  // Use first image from the media array, or a working placeholder if not available.
-  const thumbnail = venue.media && venue.media.length > 0 
-    ? venue.media[0].url 
-    : 'via.placeholder.com/400x200?text=No+Image';
-
-  // Build a location string from available location details.
-  let locationString = '';
-  if (venue.location) {
-    const { address, city, country } = venue.location;
-    locationString = [address, city, country].filter(Boolean).join(', ');
-  }
-
+export default function VenueCard({ venue }) {
+  const location = [venue.location?.city, venue.location?.country]
+    .filter(Boolean)
+    .join(", ");
+  const description = venue.description || "";
   return (
-    <div className="card h-100 shadow-sm">
-      <img 
-        src={thumbnail} 
-        className="card-img-top" 
-        alt={venue.name} 
-        style={{ height: '200px', objectFit: 'cover' }} 
-      />
+    <article className="card venue-card h-100">
+      <Link
+        to={`/venues/${venue.id}`}
+        aria-label={`View ${venue.name}`}
+        className="venue-image-link"
+      >
+        <VenueImage
+          src={venue.media?.[0]?.url}
+          alt={venue.media?.[0]?.alt || venue.name}
+          className="card-img-top"
+          loading="lazy"
+          width="600"
+          height="400"
+        />
+      </Link>
       <div className="card-body d-flex flex-column">
-        <h5 className="card-title">{venue.name}</h5>
-        {locationString && (
-          <p className="card-text text-muted small mb-2">
-            {locationString}
-          </p>
-        )}
-        <p className="card-text">
-          {venue.description ? venue.description.substring(0, 100) + '...' : ''}
+        <p className="venue-location">
+          {location || "Somewhere worth discovering"}
         </p>
-        <div className="mt-auto d-flex justify-content-between align-items-center">
-          <p className="fw-bold mb-0">${venue.price} per night</p>
-          <Link to={`/venues/${venue.id}`} className="btn btn-outline-secondary btn-sm">
+        <h3 className="h5 card-title">{venue.name}</h3>
+        <p className="card-text text-muted">
+          {description.length > 100
+            ? `${description.slice(0, 100)}…`
+            : description}
+        </p>
+        <p className="small text-muted">
+          Up to {venue.maxGuests || 1} guests
+          {venue.rating > 0 ? ` · ★ ${venue.rating}` : ""}
+        </p>
+        <div className="mt-auto d-flex justify-content-between align-items-center gap-2">
+          <p className="mb-0">
+            <strong>${venue.price}</strong>{" "}
+            <span className="small text-muted">per night</span>
+          </p>
+          <Link
+            to={`/venues/${venue.id}`}
+            className="btn btn-outline-secondary btn-sm"
+          >
             View Details
           </Link>
         </div>
       </div>
-    </div>
+    </article>
   );
-};
-
-export default VenueCard;
+}
