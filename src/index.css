@@ -41,9 +41,8 @@ footer.bg-dark {
   letter-spacing: -0.05em;
 }
 .navbar .navbar-brand img {
-  background: #fff;
-  border-radius: 9px;
-  padding: 3px;
+  background: transparent;
+  padding: 0;
 }
 .navbar .navbar-collapse {
   gap: 2rem;
